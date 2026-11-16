@@ -4,11 +4,17 @@ Rajasthan Royals | SupeRR Selector Season 2 | IPL 2027 Auction Intelligence
 """
 
 import os
+import sys
 import shutil
 import pickle
 import pandas as pd
 import numpy as np
 from typing import Optional, List, Dict, Any
+
+# Ensure backend directory is in sys.path so sibling modules load regardless of working directory
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
