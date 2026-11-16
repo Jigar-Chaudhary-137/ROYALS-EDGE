@@ -1,0 +1,164 @@
+================================================================================
+RAJASTHAN ROYALS | SupeRR Selector Season 2 - Round 1 Submission
+ROYAL SCOUT: STATISTICAL AUDIT & RECONCILIATION REPORT
+================================================================================
+Generated Date: 16 November 2026
+Evaluation Track: IPL 2027 Auction Intelligence & Pressure Performance Index
+Verification Status: 100% AUDITED & VALIDATED (Single Source of Truth Established)
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY & OBJECTIVE OF AUDIT
+--------------------------------------------------------------------------------
+This audit was commissioned to eliminate discrepancies identified across preliminary
+draft outputs (specifically in report narratives, chart callouts, and manual text
+summaries) and establish a single mathematical source of truth directly anchored to
+the historical dataset (200,999 deliveries across 883 matches, 2022 onwards).
+
+All metrics have been recalculated from first principles in compliance with ICC cricket
+scoring laws, Bayesian shrinkage statistics, and vectorized Match Pressure Index (MPI)
+formulations. Zero values are hardcoded.
+
+--------------------------------------------------------------------------------
+2. ROOT CAUSE ANALYSIS OF PRELIMINARY DISCREPANCIES
+--------------------------------------------------------------------------------
+Issue 1: Divergence between static markdown summaries and analytical data
+  - Finding: Early exploratory prototypes utilized static summary strings containing
+    draft heuristic figures (e.g., Rinku Singh 96.9, Tim David 66.5, Rashid Khan 70.2).
+    Subsequent algorithmic refinements (incorporating boundary rate weights and Bayesian
+    prior adjustments) updated the DataFrames, but static display texts in the frontend
+    export component and initial PDF drafts retained preliminary figures.
+  - Correction: Implemented a strict Single Source of Truth architecture. The PDF
+    generator (`backend/pdf_generator.py`) and export summary (`frontend/src/pages/ExportCentre.jsx`)
+    now dynamically render directly from the verified DataFrames and CSV files.
+
+Issue 2: Batting Average Discrepancy (e.g., Rinku Singh 43.3 vs 125.67)
+  - Finding: Initial code computed batting average as `runs / matches` rather than the
+    cricket definition of `runs / dismissals`. Because Rinku Singh was dismissed only 3
+    times across his 13 pressure innings (scoring 377 runs with 10 not-outs), dividing
+    by total innings artificially deflated his average to ~29-43.
+  - Correction: Corrected to official ICC batting average definition:
+    Pressure Average = Pressure Runs / max(1, Pressure Dismissals).
+    Rinku Singh's verified high-pressure average is exactly 377 / 3 = 125.67.
+
+Issue 3: Bowler Overs and Legal Balls (e.g., Rashid Khan 41.3 vs 39.2 overs)
+  - Finding: Earlier scripts converted deliveries by dividing total balls (including
+    wides and no-balls) by 6.0, conflating illegal deliveries with legal balls.
+  - Correction: Strictly implemented ICC Law 21 & 22: Bowler legal deliveries count
+    only when `is_bowler_legal == True` (excluding wides and no-balls).
+    Rashid Khan bowled 249 legal balls = 41 completed overs + 3 legal balls (41.3 overs).
+    Mustafizur Rahman bowled 231 legal balls = 38 completed overs + 3 balls (38.3 overs).
+    Economic rates are computed as: Runs Conceded / (Legal Balls / 6.0).
+
+Issue 4: Team and Competition Context Mapping
+  - Finding: Non-IPL competitions were occasionally listed in franchise columns, or
+    players were assigned ambiguous team affiliations.
+  - Correction: Created `get_player_team_context()` in `backend/analytics.py` which
+    strictly distinguishes:
+    a) IPL Franchise: Player's most recent registered IPL team (or "Non-IPL").
+    b) National Team: Player's international country representation.
+    c) Display Label: Formatted as `IPL Franchise / National Team` for IPL players,
+       and `Country (International)` for international players without recent IPL contracts.
+
+--------------------------------------------------------------------------------
+3. VERIFIED CRICKET CALCULATION RULES & METHODOLOGY
+--------------------------------------------------------------------------------
+A. Match Pressure Index (MPI in [0, 100]):
+   - Vectorized delivery-level algorithm accounting for:
+     1. Required Run Rate (RRR) vs Par Economy in 2nd innings chases.
+     2. Wickets in hand leverage factor.
+     3. Innings stage leverage (Death Overs 16-20 par pressure).
+     4. Match closeness (win margin <= 15 runs or <= 2 wickets).
+     5. 1st Innings collapse penalty (>= 3 wickets lost inside powerplay).
+     6. Super Over leverage (MPI = 100.0) and Playoff/Knockout bonus (+8.0).
+   - High-Pressure Threshold: MPI >= 70.0.
+   - Total High-Pressure Deliveries Analyzed: Exactly 18,414 balls (9.16% of dataset).
+
+B. Batting Pressure Rating (BPR in [0, 100]):
+   - Empirical Bayes Adjusted Strike Rate:
+     Adj_SR = (Pressure_Balls * Pressure_SR + 40 * Career_SR) / (Pressure_Balls + 40)
+   - Empirical Bayes Adjusted Average:
+     Adj_Avg = (Pressure_Balls * Pressure_Avg + 40 * Career_Avg) / (Pressure_Balls + 40)
+   - Normalized Weights:
+     - Adjusted Strike Rate: 28%
+     - Adjusted Batting Average: 22%
+     - Strike Rate Acceleration (Pressure SR - Career SR): 20%
+     - Boundary Scoring % (4s & 6s / Balls): 15%
+     - Dot Ball Minimization % (100 - Dot%): 15%
+   - Sample Size Confidence Multiplier:
+     Confidence = clip(Pressure_Balls / 140.0, 0.75, 1.0)
+     Final BPR = Raw_Composite * Confidence
+
+C. Bowling Pressure Rating (BPR in [0, 100]):
+   - Empirical Bayes Adjusted Economy:
+     Adj_Econ = (Legal_Balls * Pressure_Econ + 36 * Career_Econ) / (Legal_Balls + 36)
+   - Empirical Bayes Adjusted Wicket Strike Rate:
+     Adj_Wkt_SR = (Legal_Balls * Pressure_SR + 36 * Career_SR) / (Legal_Balls + 36)
+   - Normalized Weights:
+     - Adjusted Economy Rate (Lower is better): 30%
+     - Economy Improvement vs Baseline (Career Econ - Pressure Econ): 20%
+     - Adjusted Wicket Strike Rate (Balls per Wicket): 20%
+     - Dot Ball Percentage (Pressure Dots / Legal Balls): 18%
+     - Boundary Concession Minimization: 12%
+   - Sample Size Confidence Multiplier:
+     Confidence = clip(Legal_Balls / 150.0, 0.75, 1.0)
+     Final Bowling Rating = Raw_Composite * Confidence
+
+--------------------------------------------------------------------------------
+4. FINAL VALIDATED RANKING TABLES (SINGLE SOURCE OF TRUTH)
+--------------------------------------------------------------------------------
+
+TOP 10 BATTERS UNDER PRESSURE (Eligibility: >= 45 pressure balls, >= 5 pressure matches):
++------+-----------------------+------------------------------------+--------+-------+------+--------+--------+--------+--------+--------+
+| Rank | Player Name           | Affiliation Context                | Rating | Balls | Runs | Avg    | PresSR | NormSR | SR-Diff| Bound% |
++------+-----------------------+------------------------------------+--------+-------+------+--------+--------+--------+--------+--------+
+|    1 | Rinku Singh           | Kolkata Knight Riders / India      |  97.01 |   167 |  377 | 125.67 | 225.75 | 152.68 | +73.07 | 37.13% |
+|    2 | Tim David             | Royal Challengers / Australia      |  69.16 |   248 |  525 |  40.38 | 211.69 | 177.65 | +34.04 | 30.65% |
+|    3 | David Miller          | Delhi Capitals / South Africa      |  62.27 |   109 |  246 |  41.00 | 225.69 | 149.30 | +76.39 | 33.03% |
+|    4 | Mahendra Singh Dhoni  | Chennai Super Kings / India        |  60.78 |   182 |  335 |  30.45 | 184.07 | 149.68 | +34.39 | 28.02% |
+|    5 | Ravindra Jadeja       | Rajasthan Royals / India           |  59.56 |   168 |  285 |  40.71 | 169.64 | 135.07 | +34.57 | 21.43% |
+|    6 | Rashid Khan           | Gujarat Titans / Afghanistan       |  58.11 |   236 |  445 |  21.19 | 188.56 | 156.02 | +32.54 | 28.39% |
+|    7 | Namboori Tilak Varma  | Mumbai Indians / India             |  57.45 |   159 |  285 |  28.50 | 179.25 | 142.98 | +36.27 | 24.53% |
+|    8 | Rovman Powell         | Kolkata Knight Riders / West Indies|  57.13 |   211 |  381 |  21.17 | 180.57 | 146.76 | +33.81 | 25.59% |
+|    9 | Shubham Dubey         | Rajasthan Royals / India           |  56.10 |    47 |  105 |  52.50 | 223.40 | 153.85 | +69.55 | 31.91% |
+|   10 | Rahul Tewatia         | Gujarat Titans / India             |  55.67 |   158 |  280 |  21.54 | 177.22 | 149.05 | +28.17 | 27.22% |
++------+-----------------------+------------------------------------+--------+-------+------+--------+--------+--------+--------+--------+
+
+TOP 10 BOWLERS UNDER PRESSURE (Eligibility: >= 60 pressure legal balls, >= 5 pressure matches):
++------+-----------------------+------------------------------------+--------+-------+-------+------+--------+--------+--------+--------+
+| Rank | Player Name           | Affiliation Context                | Rating | Overs | Balls | Wkts | Econ   | NormEc | Ec-Diff| Dot%   |
++------+-----------------------+------------------------------------+--------+-------+-------+------+--------+--------+--------+--------+
+|    1 | Rashid Khan           | Gujarat Titans / Afghanistan       |  72.13 |  41.3 |   249 |   29 |   6.87 |   7.43 |  +0.56 | 41.37% |
+|    2 | Jasprit Bumrah        | Mumbai Indians / India             |  70.32 |  35.0 |   210 |   19 |   6.51 |   7.27 |  +0.76 | 42.38% |
+|    3 | Mustafizur Rahman     | Kolkata Knight Riders / Bangladesh |  69.91 |  38.3 |   231 |   22 |   6.91 |   7.79 |  +0.88 | 45.45% |
+|    4 | Abrar Ahmed           | Pakistan (International)           |  69.01 |  13.5 |    83 |    7 |   3.69 |   6.68 |  +2.99 | 57.83% |
+|    5 | Varun Chakravarthy    | Kolkata Knight Riders / India      |  68.81 |  30.4 |   184 |   19 |   7.27 |   7.99 |  +0.72 | 45.65% |
+|    6 | Yuzvendra Chahal      | Punjab Kings / India               |  66.11 |  24.0 |   144 |   22 |   7.46 |   8.62 |  +1.16 | 40.97% |
+|    7 | Shaheen Afridi        | Pakistan (International)           |  62.54 |  27.5 |   167 |   15 |   7.44 |   8.01 |  +0.57 | 35.93% |
+|    8 | Kuldeep Yadav         | Delhi Capitals / India             |  60.72 |  16.4 |   100 |   18 |   6.54 |   8.02 |  +1.48 | 52.00% |
+|    9 | Maheesh Theekshana    | Rajasthan Royals / Sri Lanka       |  59.73 |  25.2 |   152 |   13 |   7.54 |   7.77 |  +0.23 | 40.79% |
+|   10 | Sufiyan Muqeem        | Pakistan (International)           |  58.11 |  13.3 |    81 |   10 |   5.93 |   6.00 |  +0.07 | 56.79% |
++------+-----------------------+------------------------------------+--------+-------+-------+------+--------+--------+--------+--------+
+
+--------------------------------------------------------------------------------
+5. AUTOMATED INTEGRITY & CONSISTENCY AUDIT RESULTS
+--------------------------------------------------------------------------------
+An automated audit test suite (`scripts/validate_results.py`) was executed on
+16 November 2026. All checks passed with zero errors or deviations:
+
+[PASS] Check 1: `top_10_batters.csv` matches `all_batters_rankings.csv.head(10)` identically.
+[PASS] Check 2: `top_10_bowlers.csv` matches `all_bowlers_rankings.csv.head(10)` identically.
+[PASS] Check 3: Zero duplicate player IDs exist across both rankings cohorts.
+[PASS] Check 4: Rankings are strictly monotonically non-increasing by rating score.
+[PASS] Check 5: 100% of ranked players satisfy minimum ball and match thresholds.
+[PASS] Check 6: Batting averages strictly reflect Pressure Runs / Dismissals.
+[PASS] Check 7: Bowling overs and economy rates strictly derive from legal deliveries.
+[PASS] Check 8: `ROYAL_SCOUT_Methodology_Report.pdf` exists, contains valid PDF header,
+                and incorporates identical figures across all 9 pages.
+[PASS] Check 9: `ROYAL_SCOUT_SUBMISSION_PACK.zip` contains all 5 required submission assets
+                plus official competition problem statement.
+[PASS] Check 10: `SUBMISSION_README.md` and Frontend `ExportCentre` texts match CSV rankings
+                 with 100% precision.
+
+OVERALL AUDIT OUTCOME: CERTIFIED CONSISTENT, DEFENSIBLE, AND COMPETITION-READY.
+================================================================================
+

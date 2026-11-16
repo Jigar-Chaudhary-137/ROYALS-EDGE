@@ -1,0 +1,25 @@
+{
+  "name": "royal-scout",
+  "version": "2.0.0",
+  "description": "Cricket Intelligence & Auction Analytics Platform for Rajasthan Royals SupeRR Selector Season 2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/launcher.js start",
+    "dev": "node scripts/launcher.js dev",
+    "build": "npm --prefix frontend run build",
+    "stop": "node scripts/launcher.js stop",
+    "validate": "python scripts/validate_results.py",
+    "pipeline": "python scripts/run_pipeline.py"
+  },
+  "keywords": [
+    "cricket-analytics",
+    "rajasthan-royals",
+    "ipl",
+    "pressure-index",
+    "sports-intelligence"
+  ],
+  "author": "Royal Scout Analytics Team",
+  "license": "UNLICENSED"
+}
+
