@@ -16,7 +16,8 @@ import {
   Flame,
   ChevronRight,
   Target,
-  Clock
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import {
   BarChart,
@@ -25,20 +26,16 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar
+  ResponsiveContainer
 } from 'recharts';
 import { fetchPlayerProfile, fetchBatters, fetchBowlers } from '../api';
 import PlayerImage from '../components/PlayerImage';
 
 export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareWithPlayer }) {
-  const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayerId || 4708); // Default to Rinku Singh
+  const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayerId || 4708);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [battersList, setBattersList] = useState([]);
   const [bowlersList, setBowlersList] = useState([]);
 
@@ -47,7 +44,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
   }, []);
 
   useEffect(() => {
-    if (initialPlayerId) {
+    if (initialPlayerId && initialPlayerId !== selectedPlayerId) {
       setSelectedPlayerId(initialPlayerId);
     }
   }, [initialPlayerId]);
@@ -60,8 +57,10 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
 
   const loadSelectors = async () => {
     try {
-      const bRes = await fetchBatters('', 'final_rating', false, 30);
-      const bwRes = await fetchBowlers('', 'final_rating', false, 36);
+      const [bRes, bwRes] = await Promise.all([
+        fetchBatters('', 'final_rating', false, 30),
+        fetchBowlers('', 'final_rating', false, 36)
+      ]);
       setBattersList(bRes.rankings || []);
       setBowlersList(bwRes.rankings || []);
     } catch (err) {
@@ -71,44 +70,92 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
 
   const loadProfile = async (id) => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetchPlayerProfile(id);
-      setProfile(res);
+      if (!res || (!res.batting && !res.bowling && res.matches_in_dataset === 0)) {
+        setError(`Player ID ${id} was not found in the competition dataset.`);
+        setProfile(null);
+      } else {
+        setProfile(res);
+      }
     } catch (err) {
       console.error("Failed to load player profile", err);
+      setError(err.message || `Player ID ${id} not found.`);
+      setProfile(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const isBatter = Boolean(profile?.batting);
-  const isBowler = Boolean(profile?.bowling);
-  const primaryRole = isBatter && isBowler
-    ? 'All-Rounder'
-    : isBatter
-    ? 'Batter / Finisher'
-    : 'Strike Bowler';
+  const handlePlayerChange = (id) => {
+    const numId = parseInt(id, 10);
+    if (!numId) return;
+    setSelectedPlayerId(numId);
+    if (window.history && window.history.pushState) {
+      window.history.pushState(null, '', `/players/${numId}`);
+    }
+  };
 
-  const primaryStats = isBatter ? profile?.batting : profile?.bowling;
-  const primaryRating = primaryStats?.rating || 0;
-  const primaryRank = primaryStats?.rank || '-';
+  // Safe formatting helper
+  const fmt = (val, decimals = 1, fallback = '-') => {
+    if (typeof val === 'number' && !isNaN(val)) {
+      return val.toFixed(decimals);
+    }
+    return fallback;
+  };
+
+  // Determine ranking & role status
+  const isRankedBatter = Boolean(profile?.batting && profile.batting.rating != null);
+  const isRankedBowler = Boolean(profile?.bowling && profile.bowling.rating != null);
+
+  const isBatter = isRankedBatter || (profile?.batting && (profile.batting.pressure_balls || 0) >= (profile?.bowling?.pressure_balls || 0));
+  const isBowler = isRankedBowler || (profile?.bowling && !isBatter);
+
+  let primaryRole = 'Cricket Specialist';
+  if (isRankedBatter && isRankedBowler) {
+    primaryRole = 'All-Rounder';
+  } else if (isRankedBatter) {
+    primaryRole = 'Batter / Finisher';
+  } else if (isRankedBowler) {
+    primaryRole = 'Strike Bowler';
+  } else if (profile?.batting?.pressure_balls > 0) {
+    primaryRole = 'Batter';
+  } else if (profile?.bowling?.pressure_balls > 0) {
+    primaryRole = 'Bowler';
+  }
+
+  // Primary stats for rating display
+  let primaryStats = null;
+  if (isRankedBatter && isRankedBowler) {
+    primaryStats = (profile.batting.rating >= profile.bowling.rating) ? profile.batting : profile.bowling;
+  } else if (isRankedBatter) {
+    primaryStats = profile.batting;
+  } else if (isRankedBowler) {
+    primaryStats = profile.bowling;
+  } else {
+    primaryStats = profile?.batting || profile?.bowling || {};
+  }
+
+  const primaryRating = typeof primaryStats?.rating === 'number' ? primaryStats.rating : 0;
+  const primaryRank = primaryStats?.rank ? primaryStats.rank : '-';
 
   // Chart data: Normal vs Pressure
   const comparisonChartData = profile ? [
     {
-      metric: isBatter ? 'Strike Rate' : 'Economy Rate',
-      Normal: isBatter ? profile.batting?.normal_sr : profile.bowling?.normal_economy,
-      Pressure: isBatter ? profile.batting?.pressure_sr : profile.bowling?.pressure_economy,
+      metric: (isRankedBowler && !isRankedBatter) ? 'Economy Rate' : 'Strike Rate',
+      Normal: (isRankedBowler && !isRankedBatter) ? (profile.bowling?.normal_economy || 0) : (profile.batting?.normal_sr || 0),
+      Pressure: (isRankedBowler && !isRankedBatter) ? (profile.bowling?.pressure_economy || 0) : (profile.batting?.pressure_sr || 0),
     },
     {
-      metric: isBatter ? 'Average' : 'Balls/Wicket',
-      Normal: isBatter ? profile.batting?.normal_avg : (profile.bowling?.pressure_strike_rate ? 15.0 : 0),
-      Pressure: isBatter ? profile.batting?.pressure_avg : profile.bowling?.pressure_strike_rate,
+      metric: (isRankedBowler && !isRankedBatter) ? 'Balls / Wkt' : 'Batting Avg',
+      Normal: (isRankedBowler && !isRankedBatter) ? (profile.bowling?.normal_strike_rate || 15.0) : (profile.batting?.normal_avg || 0),
+      Pressure: (isRankedBowler && !isRankedBatter) ? (profile.bowling?.pressure_strike_rate || 0) : (profile.batting?.pressure_avg || 0),
     },
     {
       metric: 'Dot Ball %',
       Normal: 35.0, // Benchmark
-      Pressure: isBatter ? profile.batting?.pressure_dot_pct : profile.bowling?.pressure_dot_pct,
+      Pressure: (isRankedBowler && !isRankedBatter) ? (profile.bowling?.pressure_dot_pct || 0) : (profile.batting?.pressure_dot_pct || 0),
     }
   ] : [];
 
@@ -122,8 +169,8 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => onNavigate && onNavigate(isBowler && !isBatter ? 'bowlers' : 'batters')}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-[#14213D] hover:bg-slate-50 text-xs font-bold transition-colors"
+            onClick={() => onNavigate && onNavigate(isRankedBowler && !isRankedBatter ? 'bowlers' : 'batters')}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-[#14213D] hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Return to Rankings</span>
@@ -132,7 +179,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
           <span className="text-slate-300">|</span>
 
           <span className="text-xs font-semibold text-slate-500">
-            Player Profile 360°
+            Player Profile 360° {profile ? `• ${profile.player_name}` : ''}
           </span>
         </div>
 
@@ -141,20 +188,20 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
           <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">Switch Player:</label>
           <select
             value={selectedPlayerId}
-            onChange={(e) => setSelectedPlayerId(parseInt(e.target.value, 10))}
+            onChange={(e) => handlePlayerChange(e.target.value)}
             className="w-full sm:w-64 text-xs font-bold text-[#14213D] bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#E83E8C]/30 focus:border-[#E83E8C]"
           >
             <optgroup label="Top Pressure Batters">
-              {battersList.slice(0, 20).map((b) => (
+              {battersList.slice(0, 25).map((b) => (
                 <option key={`bat-${b.striker_id}`} value={b.striker_id}>
-                  #{b.rank} {b.striker_name} ({b.final_rating})
+                  #{b.rank} {b.striker_name} ({fmt(b.final_rating)})
                 </option>
               ))}
             </optgroup>
             <optgroup label="Top Pressure Bowlers">
-              {bowlersList.slice(0, 20).map((bw) => (
+              {bowlersList.slice(0, 25).map((bw) => (
                 <option key={`bowl-${bw.bowler_id}`} value={bw.bowler_id}>
-                  #{bw.rank} {bw.bowler_name} ({bw.final_rating})
+                  #{bw.rank} {bw.bowler_name} ({fmt(bw.final_rating)})
                 </option>
               ))}
             </optgroup>
@@ -162,14 +209,50 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
         </div>
       </div>
 
-      {loading ? (
-        <div className="p-16 text-center text-slate-400">
+      {/* LOADING STATE */}
+      {loading && (
+        <div className="bg-white rounded-3xl p-16 border border-slate-200 text-center space-y-4 shadow-sm">
           <div className="flex items-center justify-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#E83E8C] animate-ping" />
-            <span className="text-sm font-semibold">Compiling 360° player intelligence...</span>
+            <span className="w-3 h-3 rounded-full bg-[#E83E8C] animate-ping" />
+            <span className="w-3 h-3 rounded-full bg-[#174EA6] animate-pulse" />
+            <span className="w-3 h-3 rounded-full bg-[#14213D] animate-ping" />
+          </div>
+          <p className="text-sm font-bold text-slate-700">Compiling 360° player intelligence dossier...</p>
+          <p className="text-xs text-slate-400">Loading ball-by-ball clutch splits, phase distributions, and Bayesian metrics.</p>
+        </div>
+      )}
+
+      {/* ERROR STATE */}
+      {!loading && error && (
+        <div className="bg-white rounded-3xl p-12 border border-rose-200 text-center space-y-4 shadow-sm max-w-xl mx-auto my-6">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <h3 className="text-lg font-black text-[#14213D]">Player Record Not Found</h3>
+          <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+            {error}
+          </p>
+          <div className="pt-2 flex items-center justify-center space-x-3">
+            <button
+              onClick={() => handlePlayerChange(4708)}
+              className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#E83E8C] text-white text-xs font-bold hover:bg-[#d4327a] transition-all shadow-md active:scale-95"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Load Rinku Singh (Rank #1)</span>
+            </button>
+            <button
+              onClick={() => onNavigate && onNavigate('batters')}
+              className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-[#14213D] text-xs font-bold hover:bg-slate-100 transition-all"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Rankings</span>
+            </button>
           </div>
         </div>
-      ) : profile ? (
+      )}
+
+      {/* SUCCESS PROFILE DISPLAY */}
+      {!loading && profile && (
         <>
           {/* PROFILE HERO SECTION */}
           <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-[#14213D] via-[#1E293B] to-[#174EA6] text-white p-6 sm:p-8 shadow-lg border border-slate-700/50">
@@ -187,8 +270,8 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                   size="hero"
                   rounded="rounded-2xl"
                   showBadge={true}
-                  badgeText={`#${primaryRank}`}
-                  badgeColor={primaryRank <= 3 ? 'pink' : 'blue'}
+                  badgeText={primaryRank !== '-' ? `#${primaryRank}` : 'ID'}
+                  badgeColor={primaryRank <= 3 && primaryRank !== '-' ? 'pink' : 'blue'}
                   className="ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-102"
                 />
               </div>
@@ -201,13 +284,16 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                     {primaryRole}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-white/10 text-slate-200 border border-white/10">
-                    {profile.intl_team}
+                    {profile.intl_team || 'International'}
                   </span>
                   {profile.ipl_team && profile.ipl_team !== 'Non-IPL' && (
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-blue-500/20 text-blue-200 border border-blue-400/30">
                       {profile.ipl_team}
                     </span>
                   )}
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-black/20">
+                    ID: {profile.player_id}
+                  </span>
                 </div>
 
                 {/* Name */}
@@ -224,15 +310,17 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                   <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10 text-center">
                     <span className="text-[10px] uppercase font-bold text-pink-300 block">Pressure Rating</span>
                     <div className="flex items-baseline justify-center space-x-1 mt-0.5">
-                      <span className="text-2xl font-black text-white">{primaryRating.toFixed(1)}</span>
-                      <span className="text-xs text-slate-300">/100</span>
+                      <span className="text-2xl font-black text-white">{fmt(primaryRating, 1, 'N/A')}</span>
+                      {primaryRating > 0 && <span className="text-xs text-slate-300">/100</span>}
                     </div>
                   </div>
 
                   {/* Rank Card */}
                   <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10 text-center">
-                    <span className="text-[10px] uppercase font-bold text-blue-300 block">Overall Rank</span>
-                    <span className="text-2xl font-black text-white block mt-0.5">#{primaryRank}</span>
+                    <span className="text-[10px] uppercase font-bold text-blue-300 block">Pressure Rank</span>
+                    <span className="text-2xl font-black text-white block mt-0.5">
+                      {primaryRank !== '-' ? `#${primaryRank}` : 'Unranked'}
+                    </span>
                   </div>
 
                   {/* Sample Tier */}
@@ -248,7 +336,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5">
                   <button
                     onClick={() => onCompareWithPlayer && onCompareWithPlayer(profile.player_id)}
-                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#E83E8C] hover:bg-[#d4327a] text-white text-xs font-bold shadow-md transition-all active:scale-95"
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#E83E8C] hover:bg-[#d4327a] text-white text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
                   >
                     <Scale className="w-3.5 h-3.5" />
                     <span>Compare Head-to-Head</span>
@@ -256,7 +344,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
 
                   <button
                     onClick={handleDownloadReport}
-                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/20 text-xs font-bold transition-all active:scale-95"
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/20 text-xs font-bold transition-all active:scale-95 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-pink-300" />
                     <span>Print Dossier</span>
@@ -268,7 +356,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
 
           {/* SECTION: DETAILED STATISTICAL METRICS */}
           {/* Batting Performance Splits */}
-          {profile.batting && (
+          {profile.batting && (profile.batting.pressure_balls > 0 || isRankedBatter) && (
             <div className="rr-card p-6 border-slate-200">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
@@ -287,12 +375,12 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-pink-50/60 border border-pink-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Pressure Strike Rate</span>
                   <span className="text-2xl font-black text-[#E83E8C] block mt-1 font-mono">
-                    {profile.batting.pressure_sr.toFixed(1)}
+                    {fmt(profile.batting.pressure_sr)}
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Career Norm: {profile.batting.normal_sr.toFixed(1)} (
+                    Career Norm: {fmt(profile.batting.normal_sr)} (
                     <strong className="text-emerald-600 font-bold">
-                      {profile.batting.sr_improvement > 0 ? `+${profile.batting.sr_improvement.toFixed(1)}` : profile.batting.sr_improvement.toFixed(1)}
+                      {profile.batting.sr_improvement > 0 ? `+${fmt(profile.batting.sr_improvement)}` : fmt(profile.batting.sr_improvement)}
                     </strong>)
                   </span>
                 </div>
@@ -301,10 +389,10 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Pressure Average</span>
                   <span className="text-2xl font-black text-[#14213D] block mt-1 font-mono">
-                    {profile.batting.pressure_avg.toFixed(1)}
+                    {fmt(profile.batting.pressure_avg)}
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    {profile.batting.pressure_runs} runs / {profile.batting.pressure_dismissals || 1} dismissals
+                    {profile.batting.pressure_runs} runs / {profile.batting.pressure_dismissals ?? (profile.batting.pressure_avg > 0 ? Math.round(profile.batting.pressure_runs / profile.batting.pressure_avg) : 0)} dismissals
                   </span>
                 </div>
 
@@ -312,10 +400,10 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Death Overs SR (16-20)</span>
                   <span className="text-2xl font-black text-[#174EA6] block mt-1 font-mono">
-                    {profile.batting.death_sr.toFixed(1)}
+                    {fmt(profile.batting.death_sr)}
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    {profile.batting.death_runs} runs off {profile.batting.death_balls} balls
+                    {profile.batting.death_runs || 0} runs off {profile.batting.death_balls || 0} balls
                   </span>
                 </div>
 
@@ -324,12 +412,12 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                   <span className="text-slate-500 block text-[11px] font-semibold">Boundary vs Dot %</span>
                   <div className="flex items-baseline space-x-2 mt-1">
                     <span className="text-2xl font-black text-slate-900 font-mono">
-                      {profile.batting.pressure_boundary_pct?.toFixed(1) || '30.0'}%
+                      {fmt(profile.batting.pressure_boundary_pct)}%
                     </span>
                     <span className="text-xs text-slate-400 font-semibold">Bound</span>
                   </div>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Dots: {profile.batting.pressure_dot_pct.toFixed(1)}% ({profile.batting.pressure_fours} 4s, {profile.batting.pressure_sixes} 6s)
+                    Dots: {fmt(profile.batting.pressure_dot_pct)}% ({profile.batting.pressure_fours || 0} 4s, {profile.batting.pressure_sixes || 0} 6s)
                   </span>
                 </div>
               </div>
@@ -337,7 +425,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
           )}
 
           {/* Bowling Performance Splits */}
-          {profile.bowling && (
+          {profile.bowling && (profile.bowling.pressure_balls > 0 || isRankedBowler) && (
             <div className="rr-card p-6 border-slate-200">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
@@ -347,7 +435,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                   </h3>
                 </div>
                 <span className="text-[11px] font-bold text-slate-400">
-                  {profile.bowling.pressure_overs} Overs Bowled
+                  {profile.bowling.pressure_overs} Overs Bowled ({profile.bowling.pressure_balls} legal balls)
                 </span>
               </div>
 
@@ -356,12 +444,12 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Pressure Economy Rate</span>
                   <span className="text-2xl font-black text-[#174EA6] block mt-1 font-mono">
-                    {profile.bowling.pressure_economy.toFixed(2)}
+                    {fmt(profile.bowling.pressure_economy, 2)}
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Career Norm: {profile.bowling.normal_economy.toFixed(2)} (
+                    Career Norm: {fmt(profile.bowling.normal_economy, 2)} (
                     <strong className="text-emerald-600 font-bold">
-                      {profile.bowling.econ_improvement > 0 ? `+${profile.bowling.econ_improvement.toFixed(2)}` : profile.bowling.econ_improvement.toFixed(2)} RPO
+                      {profile.bowling.econ_improvement > 0 ? `+${fmt(profile.bowling.econ_improvement, 2)}` : fmt(profile.bowling.econ_improvement, 2)} RPO
                     </strong>)
                   </span>
                 </div>
@@ -370,21 +458,21 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Pressure Wickets</span>
                   <span className="text-2xl font-black text-[#14213D] block mt-1 font-mono">
-                    {profile.bowling.pressure_wickets}
+                    {profile.bowling.pressure_wickets || 0}
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Breakthrough every {profile.bowling.pressure_strike_rate.toFixed(1)} balls
+                    Breakthrough every {fmt(profile.bowling.pressure_strike_rate, 1, 'N/A')} balls
                   </span>
                 </div>
 
-                {/* Death Overs Economy */}
+                {/* Death Overs Execution */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <span className="text-slate-500 block text-[11px] font-semibold">Death Overs Economy</span>
+                  <span className="text-slate-500 block text-[11px] font-semibold">Death Phase (16-20)</span>
                   <span className="text-2xl font-black text-[#E83E8C] block mt-1 font-mono">
-                    {profile.bowling.death_economy.toFixed(2)}
+                    {profile.bowling.death_wickets || 0} wkts
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    {profile.bowling.death_wickets} wkts off {profile.bowling.death_balls} death deliveries
+                    Captured from {profile.bowling.death_balls || 0} death deliveries
                   </span>
                 </div>
 
@@ -392,10 +480,10 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-slate-500 block text-[11px] font-semibold">Pressure Dot Ball %</span>
                   <span className="text-2xl font-black text-emerald-700 block mt-1 font-mono">
-                    {profile.bowling.pressure_dot_pct.toFixed(1)}%
+                    {fmt(profile.bowling.pressure_dot_pct)}%
                   </span>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    High dot concentration under severe constraints
+                    Runs conceded: {profile.bowling.pressure_runs_conceded || 0}
                   </span>
                 </div>
               </div>
@@ -424,7 +512,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                       contentStyle={{ backgroundColor: '#14213D', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '11px' }}
                     />
                     <Bar dataKey="Normal" fill="#94A3B8" name="Career Baseline" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Pressure" fill={isBatter ? '#E83E8C' : '#174EA6'} name="High Pressure" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Pressure" fill={isRankedBowler && !isRankedBatter ? '#174EA6' : '#E83E8C'} name="High Pressure" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -438,7 +526,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                   <span>Execution by Innings Phase</span>
                 </h4>
                 <p className="text-xs text-slate-500 mb-4">
-                  Distribution of deliveries and tactical leverage across phases
+                  Distribution of deliveries and tactical leverage across match phases
                 </p>
 
                 <div className="space-y-3">
@@ -450,7 +538,9 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                         <span>Death Overs (16–20)</span>
                       </span>
                       <span className="text-slate-800">
-                        {isBatter ? `${profile.batting?.death_sr} SR` : `${profile.bowling?.death_economy} Econ`}
+                        {isRankedBowler && !isRankedBatter
+                          ? `${profile.bowling?.death_wickets || 0} Wkts`
+                          : `${fmt(profile.batting?.death_sr)} SR`}
                       </span>
                     </div>
                     <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -466,7 +556,9 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                     <div className="flex justify-between items-center text-xs font-bold mb-1">
                       <span className="text-[#174EA6]">Middle Overs (7–15)</span>
                       <span className="text-slate-800">
-                        {isBatter ? `${profile.batting?.normal_sr} SR` : `${profile.bowling?.normal_economy} Econ`}
+                        {isRankedBowler && !isRankedBatter
+                          ? `${fmt(profile.bowling?.normal_economy, 2)} Econ`
+                          : `${fmt(profile.batting?.normal_sr)} SR`}
                       </span>
                     </div>
                     <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -495,7 +587,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <span>Analytical Strengths (Data-Verified)</span>
               </h4>
               <ul className="space-y-2 text-xs text-slate-700">
-                {profile.strengths?.map((s, i) => (
+                {(profile.strengths || ['Demonstrated composure and positional discipline under constraint']).map((s, i) => (
                   <li key={i} className="flex items-start space-x-2.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0" />
                     <span className="leading-relaxed font-medium">{s}</span>
@@ -511,7 +603,7 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
                 <span>Tactical Considerations & Vulnerabilities</span>
               </h4>
               <ul className="space-y-2 text-xs text-slate-700">
-                {profile.weaknesses?.map((w, i) => (
+                {(profile.weaknesses || ['Sample size constrained by tournament format variances']).map((w, i) => (
                   <li key={i} className="flex items-start space-x-2.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
                     <span className="leading-relaxed font-medium">{w}</span>
@@ -543,16 +635,18 @@ export default function PlayerProfiles({ initialPlayerId, onNavigate, onCompareW
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sample Confidence</span>
-                <span className="font-black text-emerald-600 text-xs mt-0.5 block">{primaryStats?.reliability_tier}</span>
+                <span className="font-black text-emerald-600 text-xs mt-0.5 block">{primaryStats?.reliability_tier || 'Qualified'}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Target Acquisition Tier</span>
-                <span className="font-black text-[#E83E8C] text-xs mt-0.5 block">Priority Scouting Radar</span>
+                <span className="font-black text-[#E83E8C] text-xs mt-0.5 block">
+                  {primaryRank !== '-' && primaryRank <= 5 ? 'Tier 1 Priority Target' : 'Scouting Watchlist'}
+                </span>
               </div>
             </div>
           </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 }

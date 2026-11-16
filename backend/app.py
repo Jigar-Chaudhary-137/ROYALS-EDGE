@@ -538,6 +538,7 @@ def search_players(q: str = Query('', min_length=1)):
     return {'results': results[:12]}
 
 @app.get("/api/player/{player_id}")
+@app.get("/api/players/{player_id}")
 def get_player(player_id: int):
     """Returns complete 360-degree player performance breakdown."""
     if not STATE['is_analyzed']:
@@ -551,6 +552,10 @@ def get_player(player_id: int):
         batters_df=STATE['batters_df'],
         bowlers_df=STATE['bowlers_df']
     )
+
+    if profile.get('matches_in_dataset', 0) == 0 and profile.get('batting') is None and profile.get('bowling') is None:
+        raise HTTPException(status_code=404, detail=f"Player ID {player_id} not found in competition database.")
+
     return profile
 
 class CompareRequest(BaseModel):
@@ -637,12 +642,27 @@ def download_submission_zip():
         filename='ROYAL_SCOUT_SUBMISSION_PACK.zip'
     )
 
-# Static file serving for single-port unified deployment
+# Static file serving & SPA routing for single-port unified deployment
 FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
 PLAYERS_DIR = os.path.join(BASE_DIR, "frontend", "public", "players")
 
-if os.path.exists(PLAYERS_DIR):
-    app.mount("/players", StaticFiles(directory=PLAYERS_DIR), name="players")
+@app.get("/players/{param:path}")
+@app.get("/players")
+def handle_player_route_or_image(param: str = ''):
+    """Handles both player image assets (/players/4708.png) and SPA profile routes (/players/4708)."""
+    if param and any(param.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif']):
+        img_path = os.path.join(PLAYERS_DIR, param)
+        if os.path.exists(img_path):
+            return FileResponse(img_path)
+        dist_img = os.path.join(FRONTEND_DIST, "players", param)
+        if os.path.exists(dist_img):
+            return FileResponse(dist_img)
+        raise HTTPException(status_code=404, detail="Player image not found")
+
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return JSONResponse({"status": "Frontend build not found. Run 'npm run build'"})
 
 if os.path.exists(FRONTEND_DIST):
     assets_dir = os.path.join(FRONTEND_DIST, "assets")

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import UploadModal from './components/UploadModal';
+import ErrorBoundary from './components/ErrorBoundary';
 
 import Overview from './pages/Overview';
 import DataExplorer from './pages/DataExplorer';
@@ -16,13 +17,37 @@ import ExportCentre from './pages/ExportCentre';
 
 import { fetchStatus, fetchOverview, runAnalysis } from './api';
 
+// Route Parser helper from window.location.pathname
+function parseRouteFromUrl() {
+  if (typeof window === 'undefined') return { tab: 'overview', playerId: null };
+  const path = window.location.pathname.replace(/^\/|\/$/g, '');
+  if (!path) return { tab: 'overview', playerId: null };
+
+  const segments = path.split('/');
+  if (segments[0] === 'players' || segments[0] === 'player') {
+    const id = parseInt(segments[1], 10);
+    return { tab: 'profiles', playerId: !isNaN(id) ? id : 4708 };
+  }
+
+  const validTabs = [
+    'overview', 'explorer', 'pressure', 'batters', 'bowlers',
+    'profiles', 'comparison', 'recommendations', 'methodology', 'exports'
+  ];
+  if (validTabs.includes(segments[0])) {
+    return { tab: segments[0], playerId: null };
+  }
+
+  return { tab: 'overview', playerId: null };
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const initialRoute = parseRouteFromUrl();
+  const [activeTab, setActiveTab] = useState(initialRoute.tab);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(initialRoute.playerId || 4708);
   const [status, setStatus] = useState(null);
   const [overviewData, setOverviewData] = useState(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [comparePlayerA, setComparePlayerA] = useState(4708);
   const [comparePlayerB, setComparePlayerB] = useState(6396);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -30,6 +55,18 @@ export default function App() {
 
   useEffect(() => {
     loadInitialData();
+
+    // Listen to browser Back / Forward events
+    const onPopState = () => {
+      const route = parseRouteFromUrl();
+      setActiveTab(route.tab);
+      if (route.playerId) {
+        setSelectedPlayerId(route.playerId);
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   const loadInitialData = async () => {
@@ -59,14 +96,36 @@ export default function App() {
     }
   };
 
+  const handleNavigate = (tab) => {
+    setActiveTab(tab);
+    if (window.history && window.history.pushState) {
+      const url = tab === 'overview' ? '/' : `/${tab}`;
+      if (window.location.pathname !== url) {
+        window.history.pushState(null, '', url);
+      }
+    }
+  };
+
   const handleSelectPlayer = (playerId) => {
-    setSelectedPlayerId(playerId);
+    const numId = parseInt(playerId, 10);
+    if (!numId) return;
+    setSelectedPlayerId(numId);
     setActiveTab('profiles');
+    if (window.history && window.history.pushState) {
+      const url = `/players/${numId}`;
+      if (window.location.pathname !== url) {
+        window.history.pushState(null, '', url);
+      }
+    }
   };
 
   const handleCompareWithPlayer = (playerId) => {
-    setComparePlayerA(playerId);
+    const numId = parseInt(playerId, 10);
+    setComparePlayerA(numId);
     setActiveTab('comparison');
+    if (window.history && window.history.pushState) {
+      window.history.pushState(null, '', '/comparison');
+    }
   };
 
   const showToast = (message, type = 'info') => {
@@ -83,7 +142,7 @@ export default function App() {
         onOpenUpload={() => setIsUploadModalOpen(true)}
         onRunAnalysis={handleRunAnalysis}
         isAnalyzing={isAnalyzing}
-        onNavigate={(tab) => setActiveTab(tab)}
+        onNavigate={handleNavigate}
         onSelectPlayer={handleSelectPlayer}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         sidebarCollapsed={sidebarCollapsed}
@@ -94,64 +153,66 @@ export default function App() {
         {/* Navigation Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          onSelectTab={(tab) => setActiveTab(tab)}
+          onSelectTab={handleNavigate}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
 
-        {/* Dynamic Main Content Area */}
+        {/* Dynamic Main Content Area protected by ErrorBoundary */}
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 w-full overflow-y-auto">
-          {activeTab === 'overview' && (
-            <Overview
-              overviewData={overviewData}
-              onNavigate={(tab) => setActiveTab(tab)}
-              onSelectPlayer={handleSelectPlayer}
-            />
-          )}
+          <ErrorBoundary onReset={() => handleNavigate('overview')}>
+            {activeTab === 'overview' && (
+              <Overview
+                overviewData={overviewData}
+                onNavigate={handleNavigate}
+                onSelectPlayer={handleSelectPlayer}
+              />
+            )}
 
-          {activeTab === 'explorer' && (
-            <DataExplorer dataReport={status?.data_report} />
-          )}
+            {activeTab === 'explorer' && (
+              <DataExplorer dataReport={status?.data_report} />
+            )}
 
-          {activeTab === 'pressure' && (
-            <PressureEngine />
-          )}
+            {activeTab === 'pressure' && (
+              <PressureEngine />
+            )}
 
-          {activeTab === 'batters' && (
-            <BatterRankings onSelectPlayer={handleSelectPlayer} />
-          )}
+            {activeTab === 'batters' && (
+              <BatterRankings onSelectPlayer={handleSelectPlayer} />
+            )}
 
-          {activeTab === 'bowlers' && (
-            <BowlerRankings onSelectPlayer={handleSelectPlayer} />
-          )}
+            {activeTab === 'bowlers' && (
+              <BowlerRankings onSelectPlayer={handleSelectPlayer} />
+            )}
 
-          {activeTab === 'profiles' && (
-            <PlayerProfiles
-              initialPlayerId={selectedPlayerId}
-              onNavigate={(tab) => setActiveTab(tab)}
-              onCompareWithPlayer={handleCompareWithPlayer}
-            />
-          )}
+            {activeTab === 'profiles' && (
+              <PlayerProfiles
+                initialPlayerId={selectedPlayerId}
+                onNavigate={handleNavigate}
+                onCompareWithPlayer={handleCompareWithPlayer}
+              />
+            )}
 
-          {activeTab === 'comparison' && (
-            <PlayerComparison
-              initialPlayerAId={comparePlayerA}
-              initialPlayerBId={comparePlayerB}
-              onSelectPlayer={handleSelectPlayer}
-            />
-          )}
+            {activeTab === 'comparison' && (
+              <PlayerComparison
+                initialPlayerAId={comparePlayerA}
+                initialPlayerBId={comparePlayerB}
+                onSelectPlayer={handleSelectPlayer}
+              />
+            )}
 
-          {activeTab === 'recommendations' && (
-            <RRRecommendations onSelectPlayer={handleSelectPlayer} />
-          )}
+            {activeTab === 'recommendations' && (
+              <RRRecommendations onSelectPlayer={handleSelectPlayer} />
+            )}
 
-          {activeTab === 'methodology' && (
-            <Methodology />
-          )}
+            {activeTab === 'methodology' && (
+              <Methodology />
+            )}
 
-          {activeTab === 'exports' && (
-            <ExportCentre overviewData={overviewData} />
-          )}
+            {activeTab === 'exports' && (
+              <ExportCentre overviewData={overviewData} />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
 

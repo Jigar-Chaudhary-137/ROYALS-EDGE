@@ -104,23 +104,29 @@ To stop the application and cleanly release ports (8000 and 5173):
 ```text
 ROYALS-EDGE/
 │
+├── ROYAL_SCOUT_FINAL_REPORT.pdf            # Authoritative 25-Page Publication PDF Report (Times New Roman throughout)
+├── SUBMISSION_README.md                    # Evaluator Guide & Executive Brief
+├── STATISTICAL_METHODOLOGY.md              # Deep-Dive Mathematical Formulation & Bayesian Shrinkage Proofs
+├── SCREENSHOTS.md                          # Illustrated Catalog of All 12 Live UI Screenshots
+├── README.md                               # Project Architecture & Complete Technical Manual
+│
 ├── backend/                                # FastAPI Analytical Backend
 │   ├── app.py                              # REST API Server, Health Probe & Static SPA Server
 │   ├── analytics.py                        # Cricket Analytics & Bayesian Shrinkage Engine
 │   ├── pressure_engine.py                  # Vectorized Match Pressure Index (MPI)
-│   ├── pdf_generator.py                    # 9-Page Publication-Grade PDF Generator
+│   ├── pdf_generator.py                    # PDF Report Generator Engine
 │   ├── data_validator.py                   # Competition Dataset Validation & ZIP Extraction
 │   ├── exports.py                          # CSV Exports & Submission Pack ZIP Generator
 │   └── requirements.txt                    # Pinned Python Dependencies
 │
-├── frontend/                               # React + Vite Premium Frontend
+├── frontend/                               # React 18 + TailwindCSS + Vite Premium Frontend
 │   ├── src/
-│   │   ├── components/                     # Sidebar, Navbar, GlobalSearch, Podium, PlayerImage
-│   │   ├── pages/                          # Overview, Batters, Bowlers, Profiles, Comparison, etc.
+│   │   ├── components/                     # Sidebar, Navbar, GlobalSearch, Podium, PlayerImage, ErrorBoundary
+│   │   ├── pages/                          # Overview, Batters, Bowlers, Profiles, Comparison, Radar, etc.
 │   │   ├── utils/                          # playerImages.js (Image Registry & Color System)
 │   │   ├── api.js                          # Unified Backend API Client
-│   │   └── App.jsx                         # Main 10-Route Application Frame
-│   ├── public/players/                     # Verified High-Resolution Player Portraits
+│   │   └── App.jsx                         # Main 10-Route Application Frame with HTML5 History Routing
+│   ├── public/players/                     # Verified High-Resolution Player Portraits (13 assets)
 │   ├── package.json                        # Frontend Dependencies (Tailwind, Lucide, Recharts)
 │   └── vite.config.js                      # Vite Configuration with API Proxy
 │
@@ -134,20 +140,27 @@ ROYALS-EDGE/
 │   └── royal_scout_cache.pkl               # High-Performance Analytical Cache
 │
 ├── exports/                                # Official Competition Deliverables
-│   ├── ROYAL_SCOUT_Methodology_Report.pdf  # Verified 9-Page PDF Report
-│   ├── ROYAL_SCOUT_SUBMISSION_PACK.zip     # Master Submission Pack
+│   ├── ROYAL_SCOUT_FINAL_REPORT.pdf        # Authoritative 25-Page Publication PDF Report
+│   ├── STATISTICAL_AUDIT_REPORT.txt        # 100% Validated Mathematical Reconciliation Log
 │   ├── top_10_batters.csv                  # Official Top 10 Batters Tabular Data
 │   ├── top_10_bowlers.csv                  # Official Top 10 Bowlers Tabular Data
 │   ├── all_batters_rankings.csv            # Full Cohort (118 Batters)
 │   ├── all_bowlers_rankings.csv            # Full Cohort (92 Bowlers)
-│   └── STATISTICAL_AUDIT_REPORT.txt        # Automated Mathematical Audit Log
+│   ├── ROYAL_SCOUT_FINAL_SUBMISSION.zip    # Clean Master Submission Package
+│   ├── screenshots/                        # 12 Authentic High-Resolution UI Captures (300 DPI)
+│   ├── diagrams/                           # 7 System Architecture & Workflow Diagrams (300 DPI)
+│   └── charts/                             # 10 Analytical Visualizations (300 DPI)
 │
-├── scripts/                                # Automation & Verification Scripts
+├── scripts/                                # Automation, Verification & Generation Scripts
 │   ├── launcher.js                         # Production Node.js Launcher (npm run start/dev/stop)
 │   ├── launcher.py                         # Cross-Platform Python Launcher
-│   ├── run_pipeline.py                     # Standalone Analytical Pipeline Execution
+│   ├── generate_final_report.py            # 25-Page Publication Report Generator (100% Times New Roman)
+│   ├── generate_diagrams.py                # 7 High-DPI System Diagrams Generator
+│   ├── generate_analytical_charts.py       # 10 High-DPI Analytical Visualizations Generator
+│   ├── capture_all_screenshots.js          # Puppeteer Live UI Screenshot Engine
+│   ├── test_bug_fix.py                     # 10-Point Integration & Regression Verification Suite
 │   ├── validate_results.py                 # Mathematical Single-Source-of-Truth Auditor
-│   └── test_integration.py                 # Full 12-Endpoint Integration Test Suite
+│   └── build_submission_zip.py             # Clean Master Submission Packaging Script
 │
 ├── package.json                            # Root Orchestrator Scripts
 ├── requirements.txt                        # Root Python Requirements
@@ -164,26 +177,32 @@ ROYALS-EDGE/
 ### 1. Match Pressure Index (MPI)
 Every delivery is assigned a dynamic pressure score $P \in [0, 100]$:
 - **Innings 2 (Chase):**
-  $$P_{\text{inn2}} = 0.35 \times P_{\text{RRR}} + 0.25 \times P_{\text{WIH}} + 0.20 \times P_{\text{Stage}} + 0.20 \times P_{\text{Close}} + \text{KO Bonus}$$
+  $$P_{\text{inn2}} = 0.35 \times P_{\text{RRR}} + 0.25 \times P_{\text{WIH}} + 0.20 \times P_{\text{Stage}} + 0.20 \times P_{\text{Close}} + \text{Bonus}_{\text{KO}}$$
 - **Innings 1 (Setting Par):**
-  $$P_{\text{inn1}} = 0.40 \times P_{\text{Death}} + 0.35 \times P_{\text{Collapse}} + 0.15 \times P_{\text{CRR}} + 3.0 + \text{KO Bonus}$$
+  $$P_{\text{inn1}} = 0.40 \times P_{\text{Death}} + 0.35 \times P_{\text{Collapse}} + 0.15 \times P_{\text{CRR}} + 3.0 + \text{Bonus}_{\text{KO}}$$
 - **Super Overs:** 100.0 on every delivery.
-- **High-Pressure Crucible ($\ge 70.0$ MPI):** 18,414 deliveries (9.2% of the dataset) represent high-leverage situations.
+- **High-Pressure Crucible ($\ge 70.0$ MPI):** 18,414 deliveries (9.16% of the dataset) represent high-leverage situations.
 
 ### 2. Empirical Bayes Shrinkage
-To ensure that small sample sizes (e.g. 45 balls) do not artificially outrank consistent long-term performers, strike rates and economies are adjusted via empirical Bayes shrinkage ($K = 40$ prior deliveries):
-$$\text{Weight}_{\text{sample}} = \frac{N_{\text{balls}}}{N_{\text{balls}} + 40.0}$$
-$$\text{Adjusted Metric} = \text{Weight}_{\text{sample}} \times \text{Raw Metric} + (1 - \text{Weight}_{\text{sample}}) \times \mu_{\text{cohort}}$$
+To ensure that small sample sizes do not artificially outrank consistent long-term performers, strike rates and economies are adjusted via empirical Bayes shrinkage:
+- **Batting Strike Rate ($K_B = 25$ balls, prior $\mu_{\text{SR}} = 142.34$):**
+  $$\lambda_{\text{bat}} = \frac{N_{\text{balls}}}{N_{\text{balls}} + 25.0}, \quad \text{SR}_{\text{adj}} = \lambda_{\text{bat}} \cdot \text{SR}_{\text{obs}} + (1 - \lambda_{\text{bat}}) \cdot 142.34$$
+- **Bowling Economy ($K_{BW} = 35$ balls / 5.83 overs, prior $\mu_{\text{Econ}} = 8.85$):**
+  $$\lambda_{\text{bowl}} = \frac{N_{\text{balls}}}{N_{\text{balls}} + 35.0}, \quad \text{Econ}_{\text{adj}} = \lambda_{\text{bowl}} \cdot \text{Econ}_{\text{obs}} + (1 - \lambda_{\text{bowl}}) \cdot 8.85$$
 
 ---
 
 ## 📦 Submission Deliverables Pack
 
-All competition deliverables are pre-generated and accessible in the `exports/` folder:
-- **Publication PDF Report:** `exports/ROYAL_SCOUT_Methodology_Report.pdf` (9-page comprehensive document with embedded charts and formulas)
+All competition deliverables are pre-generated and accessible in the root and `exports/` folder:
+- **Publication PDF Report:** `ROYAL_SCOUT_FINAL_REPORT.pdf` (25-page definitive document with Times New Roman throughout, all 12 live screenshots, 7 diagrams, 10 charts, and 360° player dossiers)
+- **Evaluator Guide:** `SUBMISSION_README.md` (summary of rankings, methodology, and setup)
+- **Mathematical Specification:** `STATISTICAL_METHODOLOGY.md` (MPI formulas, Bayesian shrinkage proofs, MCC law conformity)
+- **Visual Catalog:** `SCREENSHOTS.md` (illustrated catalog of Figures 1 to 12)
+- **Mathematical Audit Log:** `exports/STATISTICAL_AUDIT_REPORT.txt` (100% verified Single Source of Truth log)
 - **Top 10 Batters CSV:** `exports/top_10_batters.csv`
 - **Top 10 Bowlers CSV:** `exports/top_10_bowlers.csv`
 - **Complete Batting Cohort CSV:** `exports/all_batters_rankings.csv` (118 eligible batters)
 - **Complete Bowling Cohort CSV:** `exports/all_bowlers_rankings.csv` (92 eligible bowlers)
-- **Master Submission ZIP:** `exports/ROYAL_SCOUT_SUBMISSION_PACK.zip` (contains all reports, CSVs, problem statement, and evaluator guide)
+- **Master Submission ZIP:** `ROYAL_SCOUT_FINAL_SUBMISSION.zip` (clean, self-contained master package excluding bulky node_modules and raw databases)
 
